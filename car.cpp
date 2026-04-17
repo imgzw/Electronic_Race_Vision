@@ -1353,6 +1353,13 @@ int main(int argc, char **argv) {
     cvtColor(roi_small, gray_small, COLOR_BGR2GRAY);
 
     GaussianBlur(gray_small, gray_small, Size(7, 7), 0);
+
+    // 顶帽变换去除不均匀光照
+    Mat tophat_kernel = getStructuringElement(MORPH_RECT, Size(15, 15));
+    Mat tophat;
+    morphologyEx(gray_small, tophat, MORPH_TOPHAT, tophat_kernel);
+    gray_small = gray_small - tophat;
+
     Mat binary_small;
     // 块大小 121: 防止十字横臂中心产生空洞
     // 旧值 61 在宽横臂中心看到的全是黑像素→局部均值≈像素值→阈值化失败→空洞
