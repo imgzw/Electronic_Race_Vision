@@ -1370,6 +1370,18 @@ int main(int argc, char **argv) {
     morphologyEx(binary_small, binary_small, MORPH_CLOSE, close_kernel);
     morphologyEx(binary_small, binary_small, MORPH_OPEN, open_kernel);
 
+    // 去除孤立小白块：只保留面积 >= 阈值的连通域
+    {
+      Mat labels, stats, centroids_cc;
+      int n = connectedComponentsWithStats(binary_small, labels, stats, centroids_cc);
+      int min_area = binary_small.rows * binary_small.cols / 80; // ~1.25% 面积
+      binary_small = Mat::zeros(binary_small.size(), CV_8U);
+      for (int c = 1; c < n; c++) {
+        if (stats.at<int>(c, CC_STAT_AREA) >= min_area)
+          binary_small.setTo(255, labels == c);
+      }
+    }
+
     // 性能优化：跳过上采样，直接在半分辨率binary上扫描
     // processFrame内部自动处理坐标缩放
     auto preprocess_end = chrono::steady_clock::now();
