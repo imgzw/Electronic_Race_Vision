@@ -554,25 +554,27 @@ static double computePointWeight(int strip_idx_from_bottom, int total_strips,
 
 // 在条带内用列投影找离 predicted_cx 最近的连续白色列段，返回其中心 x；失败返回 -1
 static double findNearestSegmentCx(const Mat &strip, int x_left, double predicted_cx) {
-  // 列投影：每列白像素数
   Mat col_sum;
   cv::reduce(strip, col_sum, 0, REDUCE_SUM, CV_32S);
 
-  // 找所有连续白色列段 [seg_l, seg_r)
   int cols = strip.cols;
   double best_cx = -1;
-  double best_dist = 1e9;
+  double best_score = 1e9;
 
+  // 收集所有连续白色列段
   int seg_l = -1;
   for (int c = 0; c <= cols; c++) {
     bool white = (c < cols) && (col_sum.at<int>(0, c) > 0);
     if (white && seg_l < 0) {
       seg_l = c;
     } else if (!white && seg_l >= 0) {
+      int seg_w = c - seg_l;
       double seg_cx = x_left + (seg_l + c - 1) * 0.5;
       double dist = abs(seg_cx - predicted_cx);
-      if (dist < best_dist) {
-        best_dist = dist;
+      // 综合距离和宽度：优先选近且窄的段（赛道线窄，干扰块宽）
+      double score = dist + seg_w * 0.8;
+      if (score < best_score) {
+        best_score = score;
         best_cx = seg_cx;
       }
       seg_l = -1;
