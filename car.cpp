@@ -15,6 +15,11 @@
 #include <unistd.h>
 #include <vector>
 
+#if defined(PLATFORM_LINUX)
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/rfcomm.h>
+#endif
+
 #if defined(HAVE_RGA)
 #if __has_include(<im2d.hpp>)
 #include <im2d.hpp>
@@ -35,6 +40,9 @@
 
 using namespace std;
 using namespace cv;
+
+// 运行模式 0-9，由蓝牙端直接设置，透传到串口
+static atomic<uint8_t> g_mode{0};
 
 // ============ 参数配置 ============
 // 依据摄像头规格书，选用 1280x720 满血宽幅视野，获取极佳的前瞻可视面积
@@ -1130,9 +1138,10 @@ int serialOpen(const char *port) {
   return fd;
 }
 
-// 发送 6 字节帧: [0xAA] [0x55] [angle_H] [angle_L] [status] [cross_count]
+// 发送 6 字节帧: [0xAA] [mode] [angle_H] [angle_L] [status] [cross_count]
 // status: 0=正常, 1=丢线, 2=十字路口
 // cross_count: 累计检测到的十字路口个数 (0-255 循环)
+// mode: 由蓝牙端设置的运行模式 (原 0x55 位置)
 void serialSend(int fd, int16_t heading_cdeg, bool line_lost,
                 bool cross_detected, double lateral_px, uint8_t cross_count) {
   if (fd < 0)
@@ -1146,13 +1155,14 @@ void serialSend(int fd, int16_t heading_cdeg, bool line_lost,
   else if (cross_detected)
     status = 2;
 
-  uint8_t buf[6] = {0xAA, 0x55, err_h, err_l, status, cross_count};
+  uint8_t mode = g_mode.load();
+  uint8_t buf[6] = {0xAA, mode, err_h, err_l, status, cross_count};
   ssize_t n = write(fd, buf, 6);
   (void)n;
-  printf("[SERIAL] heading=%+.2f deg  lateral=%+.1f px  status=%d  cross=#%d  "
-         "raw=[AA 55 %02X %02X %02X %02X]\n",
-         heading_cdeg / 100.0, lateral_px, status, cross_count,
-         err_h, err_l, status, cross_count);
+  printf("[SERIAL] heading=%+.2f deg  lateral=%+.1f px  status=%d  cross=#%d  mode=%d  "
+         "raw=[AA %02X %02X %02X %02X %02X]\n",
+         heading_cdeg / 100.0, lateral_px, status, cross_count, mode,
+         mode, err_h, err_l, status, cross_count);
 }
 
 // ============ main ============
@@ -1164,6 +1174,44 @@ int main(int argc, char **argv) {
   int serial_fd = -1;
   bool enable_rga = !options.disable_rga;
   RemoteStreamWorker remote_stream;
+
+#if defined(PLATFORM_LINUX)
+  // 蓝牙 RFCOMM 监听线程：手机发 '0'-'9' 切换 g_mode
+  thread bt_thread([]() {
+    int server_fd = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
+    if (server_fd < 0) { perror("BT socket"); return; }
+    struct sockaddr_rc addr = {};
+    addr.rc_family = AF_BLUETOOTH;
+    addr.rc_bdaddr = {{0,0,0,0,0,0}}; // BDADDR_ANY
+    addr.rc_channel = 1;
+    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+      perror("BT bind"); close(server_fd); return;
+    }
+    listen(server_fd, 1);
+    printf("[BT] RFCOMM channel 1 listening\n");
+    while (true) {
+      int client_fd = accept(server_fd, nullptr, nullptr);
+      if (client_fd < 0) continue;
+      printf("[BT] client connected\n");
+      char buf[16];
+      ssize_t n;
+      while ((n = read(client_fd, buf, sizeof(buf))) > 0) {
+        for (ssize_t i = 0; i < n; i++) {
+          if (buf[i] >= '0' && buf[i] <= '9') {
+            uint8_t m = buf[i] - '0';
+            g_mode.store(m);
+            printf("[BT] mode -> %d\n", m);
+          }
+        }
+      }
+      close(client_fd);
+      printf("[BT] client disconnected\n");
+    }
+    close(server_fd);
+  });
+  bt_thread.detach();
+#endif
+
 
   if (!options.input_path.empty()) {
     static_image = imread(options.input_path);
