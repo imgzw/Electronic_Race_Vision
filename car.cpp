@@ -15,10 +15,6 @@
 #include <unistd.h>
 #include <vector>
 
-#if defined(PLATFORM_LINUX)
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/rfcomm.h>
-#endif
 
 #if defined(HAVE_RGA)
 #if __has_include(<im2d.hpp>)
@@ -1176,38 +1172,21 @@ int main(int argc, char **argv) {
   RemoteStreamWorker remote_stream;
 
 #if defined(PLATFORM_LINUX)
-  // 蓝牙 RFCOMM 监听线程：手机发 '0'-'9' 切换 g_mode
+  // 模式监听线程：轮询 /tmp/car_mode，由 bt_agent.py 写入
   thread bt_thread([]() {
-    int server_fd = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
-    if (server_fd < 0) { perror("BT socket"); return; }
-    struct sockaddr_rc addr = {};
-    addr.rc_family = AF_BLUETOOTH;
-    addr.rc_bdaddr = {{0,0,0,0,0,0}}; // BDADDR_ANY
-    addr.rc_channel = 1;
-    if (bind(server_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-      perror("BT bind"); close(server_fd); return;
-    }
-    listen(server_fd, 1);
-    printf("[BT] RFCOMM channel 1 listening\n");
+    uint8_t last = 255;
     while (true) {
-      int client_fd = accept(server_fd, nullptr, nullptr);
-      if (client_fd < 0) continue;
-      printf("[BT] client connected\n");
-      char buf[16];
-      ssize_t n;
-      while ((n = read(client_fd, buf, sizeof(buf))) > 0) {
-        for (ssize_t i = 0; i < n; i++) {
-          if (buf[i] >= '0' && buf[i] <= '9') {
-            uint8_t m = buf[i] - '0';
-            g_mode.store(m);
-            printf("[BT] mode -> %d\n", m);
-          }
+      FILE *f = fopen("/tmp/car_mode", "r");
+      if (f) {
+        int v = fgetc(f);
+        fclose(f);
+        if (v >= '0' && v <= '9') {
+          uint8_t m = v - '0';
+          if (m != last) { g_mode.store(m); last = m; printf("[MODE] -> %d\n", m); }
         }
       }
-      close(client_fd);
-      printf("[BT] client disconnected\n");
+      this_thread::sleep_for(chrono::milliseconds(100));
     }
-    close(server_fd);
   });
   bt_thread.detach();
 #endif
