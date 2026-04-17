@@ -67,15 +67,16 @@ class SerialProfile(dbus.service.Object):
             c = chr(b)
             if c == '7':
                 try:
-                    with open(MODE_FILE, "r") as f:
-                        cur = f.read(1)
+                    with open("/tmp/car_status", "r") as f:
+                        status = f.read().strip()
                 except Exception:
-                    cur = '0'
-                os.write(self.fd, f"mode={cur}\n".encode())
-                print(f"[BT] report mode={cur}")
+                    status = "unavailable"
+                os.write(self.fd, f"{status}\n".encode())
+                print(f"[BT] query -> {status}")
             elif '1' <= c <= '6':
                 with open(MODE_FILE, "w") as f:
                     f.write(c)
+                os.write(self.fd, f"OK mode={c}\n".encode())
                 print(f"[BT] mode -> {c}")
         return True
 

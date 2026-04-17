@@ -1458,6 +1458,18 @@ int main(int argc, char **argv) {
                smooth_lateral, cross_count);
     auto serial_end = chrono::steady_clock::now();
 
+    // 写状态文件供蓝牙查询
+    {
+      FILE *sf = fopen("/tmp/car_status", "w");
+      if (sf) {
+        fprintf(sf, "mode=%d heading=%.2f lateral=%.1f status=%d cross=%d\n",
+                (int)g_mode.load(), smooth_heading, smooth_lateral,
+                output_result.line_lost ? 1 : (cross_latched ? 2 : 0),
+                (int)cross_count);
+        fclose(sf);
+      }
+    }
+
     perf_stats.capture_ms =
         chrono::duration_cast<chrono::duration<double, milli>>(capture_end -
                                                                frame_begin)
