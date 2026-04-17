@@ -10,8 +10,31 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 import os, sys
 
-MODE_FILE = "/tmp/car_mode"
-SPP_UUID  = "00001101-0000-1000-8000-00805f9b34fb"
+MODE_FILE  = "/tmp/car_mode"
+SPP_UUID   = "00001101-0000-1000-8000-00805f9b34fb"
+AGENT_PATH = "/org/bluez/car_agent"
+
+class AutoAgent(dbus.service.Object):
+    @dbus.service.method("org.bluez.Agent1", in_signature="", out_signature="")
+    def Release(self): pass
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="os", out_signature="")
+    def AuthorizeService(self, device, uuid):
+        print(f"[AGENT] authorize {device} uuid={uuid}")  # 自动接受
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="o", out_signature="")
+    def RequestAuthorization(self, device):
+        print(f"[AGENT] authorize device {device}")
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
+    def DisplayPasskey(self, device, passkey): pass
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="ouq", out_signature="")
+    def DisplayPinCode(self, device, pincode, entered): pass
+
+    @dbus.service.method("org.bluez.Agent1", in_signature="ou", out_signature="")
+    def RequestConfirmation(self, device, passkey):
+        print(f"[AGENT] confirm passkey {passkey} for {device}")  # 自动确认
 
 class SerialProfile(dbus.service.Object):
     fd = -1
@@ -65,6 +88,14 @@ def main():
         "AutoConnect": dbus.Boolean(True),
     })
     print("[BT] SPP profile registered on channel 1")
+
+    # 注册 Agent，自动接受认证请求
+    agent = AutoAgent(bus, AGENT_PATH)
+    agent_mgr = dbus.Interface(bus.get_object("org.bluez", "/org/bluez"),
+                               "org.bluez.AgentManager1")
+    agent_mgr.RegisterAgent(AGENT_PATH, "NoInputNoOutput")
+    agent_mgr.RequestDefaultAgent(AGENT_PATH)
+    print("[BT] agent registered")
 
     # 确保可配对可发现
     adapter = dbus.Interface(bus.get_object("org.bluez", "/org/bluez/hci0"),
