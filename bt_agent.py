@@ -65,7 +65,15 @@ class SerialProfile(dbus.service.Object):
         data = os.read(fd, 64)
         for b in data:
             c = chr(b)
-            if c.isdigit():
+            if c == '7':
+                try:
+                    with open(MODE_FILE, "r") as f:
+                        cur = f.read(1)
+                except Exception:
+                    cur = '0'
+                os.write(self.fd, f"mode={cur}\n".encode())
+                print(f"[BT] report mode={cur}")
+            elif '1' <= c <= '6':
                 with open(MODE_FILE, "w") as f:
                     f.write(c)
                 print(f"[BT] mode -> {c}")

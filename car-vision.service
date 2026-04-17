@@ -1,0 +1,13 @@
+[Unit]
+Description=Car Vision Line Tracking
+After=car-bt.service
+Requires=car-bt.service
+
+[Service]
+Type=simple
+ExecStart=/home/radxa/Electronic_Race_Vision/build/car --camera-device=/dev/video0 --http-mjpeg=8080 --headless /dev/ttyS2
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
