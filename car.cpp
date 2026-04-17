@@ -552,37 +552,6 @@ static double computePointWeight(int strip_idx_from_bottom, int total_strips,
   return max(0.2, proximity_weight * compactness * continuity);
 }
 
-// 在条带内用列投影找离 predicted_cx 最近的连续白色列段，返回其中心 x；失败返回 -1
-static double findNearestSegmentCx(const Mat &strip, int x_left, double predicted_cx) {
-  Mat col_sum;
-  cv::reduce(strip, col_sum, 0, REDUCE_SUM, CV_32S);
-
-  int cols = strip.cols;
-  double best_cx = -1;
-  double best_score = 1e9;
-
-  // 收集所有连续白色列段
-  int seg_l = -1;
-  for (int c = 0; c <= cols; c++) {
-    bool white = (c < cols) && (col_sum.at<int>(0, c) > 0);
-    if (white && seg_l < 0) {
-      seg_l = c;
-    } else if (!white && seg_l >= 0) {
-      int seg_w = c - seg_l;
-      double seg_cx = x_left + (seg_l + c - 1) * 0.5;
-      double dist = abs(seg_cx - predicted_cx);
-      // 综合距离和宽度：优先选近且窄的段（赛道线窄，干扰块宽）
-      double score = dist + seg_w * 0.8;
-      if (score < best_score) {
-        best_score = score;
-        best_cx = seg_cx;
-      }
-      seg_l = -1;
-    }
-  }
-  return best_cx;
-}
-
 vector<Point2d> scanCentroids(const Mat &binary, int num_strips, int search_w, int max_search_w,
                               vector<double> *point_weights) {
   vector<Point2d> centroids;
@@ -623,24 +592,22 @@ vector<Point2d> scanCentroids(const Mat &binary, int num_strips, int search_w, i
       }
     }
 
-    // 用列投影找离预测位置最近的连续白色列段
-    double cx = findNearestSegmentCx(strip, x_left, predicted_cx);
-    if (cx < 0) {
-      // 第三阶段：扩大到 max_search_w 再找
+    Moments m = moments(strip, true);
+    if (m.m00 < 10) {
+      // 第三阶段：以上一次成功质心为锚点的全宽搜索
       double fallback_cx = have_prev ? prev_cx : binary.cols / 2.0;
       x_left = max(0, cvRound(fallback_cx - max_search_w));
       x_right = min(binary.cols, cvRound(fallback_cx + max_search_w));
       w = x_right - x_left;
       window = Rect(x_left, y_start, w, h);
       strip = binary(window);
-      cx = findNearestSegmentCx(strip, x_left, predicted_cx);
-      if (cx < 0)
+      m = moments(strip, true);
+      if (m.m00 < 10)
         continue;
     }
 
-    // 用 moments 计算 cy 和 fill_ratio（仍需要权重计算）
-    Moments m = moments(strip, true);
-    double cy = y_start + (m.m00 > 0 ? m.m01 / m.m00 : h * 0.5);
+    double cx = x_left + m.m10 / m.m00;
+    double cy = y_start + m.m01 / m.m00;
     double fill_ratio = m.m00 / max(1, w * h);
 
     // 过滤噪声：填充率过高(>0.5)说明不是线而是大片噪声
