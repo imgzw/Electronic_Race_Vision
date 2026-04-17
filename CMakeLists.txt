@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.10)
+project(car_vision)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(OpenCV REQUIRED)
+find_package(PkgConfig QUIET)
+
+option(ENABLE_RGA "Enable Rockchip RGA acceleration when librga is available" ON)
+
+add_executable(car car.cpp)
+target_include_directories(car PRIVATE ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(car ${OpenCV_LIBS})
+
+if(ENABLE_RGA AND PkgConfig_FOUND)
+    pkg_check_modules(RGA QUIET librga)
+    if(RGA_FOUND)
+        message(STATUS "librga found, enabling RGA acceleration")
+        target_compile_definitions(car PRIVATE HAVE_RGA=1)
+        target_include_directories(car PRIVATE ${RGA_INCLUDE_DIRS})
+        target_link_directories(car PRIVATE ${RGA_LIBRARY_DIRS})
+        target_link_libraries(car ${RGA_LIBRARIES})
+    else()
+        message(STATUS "librga not found, building with OpenCV fallback")
+    endif()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(car PRIVATE PLATFORM_LINUX=1)
+endif()
